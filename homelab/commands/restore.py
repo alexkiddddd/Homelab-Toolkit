@@ -73,7 +73,18 @@ def run_guided(logger):
         logger.write("A executar restore-host.")
         run_interactive(["homelab", "restore-host"])
 
-        if not confirm("Executar restore-host novamente para outro componente?", False):
+        if not confirm("Foi restaurado algum componente nesta fase?", False):
+            if confirm("Sair do modo guiado agora?", True):
+                print("Modo guiado terminado.")
+                logger.write("Modo guiado terminado sem avançar para as próximas fases.")
+                return
+
+            if not confirm("Voltar ao restore-host?", False):
+                break
+
+            continue
+
+        if not confirm("Restaurar outro componente do host?", False):
             break
 
     if confirm("Avançar para restore LXC?", True):
