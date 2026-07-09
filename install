@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -e
+
+if [ "$EUID" -ne 0 ]; then
+  echo "Executa como root."
+  exit 1
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "Python 3 não encontrado."
+  exit 1
+fi
+
+mkdir -p /opt/homelab
+mkdir -p /etc/homelab
+mkdir -p /var/log/homelab
+
+cp -a homelab /opt/homelab/
+cp -a VERSION /opt/homelab/VERSION
+
+ln -sf /opt/homelab/homelab/main.py /usr/local/bin/homelab
+chmod +x /usr/local/bin/homelab
+
+find /opt/homelab -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
+echo "Homelab Toolkit instalado."
+echo "Executa: homelab doctor"
