@@ -20,6 +20,7 @@ cp -a VERSION /opt/homelab/VERSION
 
 if [ -d ".git" ]; then
   pwd > /opt/homelab/SOURCE
+  git rev-parse --short HEAD > /opt/homelab/COMMIT 2>/dev/null || true
 fi
 
 ln -sf /opt/homelab/homelab/main.py /usr/local/bin/homelab

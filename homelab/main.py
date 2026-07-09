@@ -6,12 +6,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 VERSION_FILE = Path("/opt/homelab/VERSION")
+COMMIT_FILE = Path("/opt/homelab/COMMIT")
 
 
 def version():
-    if VERSION_FILE.exists():
-        return VERSION_FILE.read_text().strip()
-    return "dev"
+    value = VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else "dev"
+
+    if COMMIT_FILE.exists():
+        commit = COMMIT_FILE.read_text().strip()
+        if commit:
+            return f"{value} ({commit})"
+
+    return value
 
 
 def help_msg():
