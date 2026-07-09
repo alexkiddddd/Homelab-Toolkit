@@ -429,6 +429,100 @@ def parse_selection(value, max_index):
     return sorted(set(selected))
 
 
+RESTORE_COMPONENTS = {
+    "1": {
+        "name": "Toolkit",
+        "summary": "Restaurar Toolkit para /opt/homelab",
+    },
+    "2": {
+        "name": "Configuração Homelab",
+        "summary": "Restaurar Configuração Homelab para /etc/homelab",
+    },
+    "3": {
+        "name": "Jobs de Backup",
+        "summary": "Restaurar Jobs de Backup do Proxmox",
+    },
+    "5": {
+        "name": "Storages Proxmox",
+        "summary": "Restaurar Storages Proxmox para /etc/pve/storage.cfg",
+        "warning": "Isto restaura as definições Proxmox, não cria discos, mounts ou datasets.",
+    },
+    "6": {
+        "name": "Rede Proxmox",
+        "summary": "Restaurar Rede Proxmox para /etc/network/interfaces",
+        "warning": "Isto pode alterar IP, gateway, bridges e acesso ao host. A rede não será reiniciada automaticamente.",
+    },
+    "7": {
+        "name": "Tailscale",
+        "summary": "Reconfigurar Tailscale",
+        "warning": "Chaves privadas e identidade antiga não serão restauradas. Poderá ser necessário autenticar novamente.",
+    },
+    "8": {
+        "name": "LCDproc",
+        "summary": "Restaurar configuração LCDproc",
+        "warning": "Isto restaura /etc/LCDd.conf e /etc/lcdproc.conf quando existirem.",
+    },
+    "9": {
+        "name": "Serviços systemd",
+        "summary": "Restaurar serviços systemd selecionados",
+        "warning": "Unit files serão escolhidos manualmente. Symlinks e diretórios .wants não serão restaurados automaticamente.",
+    },
+}
+
+RESTORE_ORDER = ["1", "2", "5", "6", "7", "8", "3", "9"]
+RESTORE_RECOMMENDED_ORDER = ["1", "2", "5", "6", "7", "8", "3"]
+
+
+def parse_component_selection(value):
+    value = value.strip().lower()
+
+    if not value or value == "0":
+        return []
+
+    if value in ["all", "todos", "tudo"]:
+        return RESTORE_RECOMMENDED_ORDER.copy()
+
+    selected = []
+
+    for part in value.split(","):
+        part = part.strip()
+
+        if part == "4":
+            selected.extend(["1", "2"])
+            continue
+
+        if part in RESTORE_COMPONENTS:
+            selected.append(part)
+
+    return [key for key in RESTORE_ORDER if key in set(selected)]
+
+
+def print_component_summary(logger, selected):
+    for key in selected:
+        component = RESTORE_COMPONENTS[key]
+        logger.print(f"✔ {component['summary']}")
+
+        warning = component.get("warning")
+        if warning:
+            logger.print(f"⚠ {warning}")
+
+
+def print_component_final_summary(logger, selected):
+    labels = {
+        "1": "Toolkit restaurado",
+        "2": "Configuração Homelab restaurada",
+        "3": "Jobs de Backup restaurados",
+        "5": "Storages Proxmox restauradas",
+        "6": "Rede Proxmox restaurada",
+        "7": "Tailscale processado",
+        "8": "LCDproc processado",
+        "9": "Serviços systemd processados",
+    }
+
+    for key in selected:
+        logger.print(f"✔ {labels[key]}")
+
+
 def restore_systemd_units(snapshot_root, manifest_units, logger):
     units = [u for u in snapshot_systemd_units(snapshot_root) if not u["is_symlink"]]
 
@@ -1171,25 +1265,23 @@ def run():
     logger.print("7 Tailscale")
     logger.print("8 LCDproc")
     logger.print("9 Serviços systemd")
+    logger.print("all Todos os componentes recomendados")
+    logger.print("")
+    logger.print("Podes escolher vários, por exemplo: 2,5,6,7,8,3")
     logger.print("0 Cancelar")
 
-    option = ask("\nEscolha:", "0")
+    selected = parse_component_selection(ask("\nEscolha:", "0"))
 
-    if option == "0":
+    if not selected:
         logger.print("Cancelado. Nenhuma alteração efetuada.")
         logger.print(f"Log: {logger.path}")
         return
 
-    if option not in ["1", "2", "3", "4", "5", "6", "7", "8", "9"]:
-        logger.print("Opção inválida.")
-        logger.print(f"Log: {logger.path}")
-        return
-
-    if option in ["1", "4"] and snapshot_toolkit != current_toolkit:
+    if "1" in selected and snapshot_toolkit != current_toolkit:
         if not confirm("Pretendes restaurar o Toolkit mesmo assim?", False):
-            option = "2" if option == "4" else "0"
+            selected = [key for key in selected if key != "1"]
 
-    if option == "0":
+    if not selected:
         logger.print("Cancelado. Nenhuma alteração efetuada.")
         logger.print(f"Log: {logger.path}")
         return
@@ -1198,37 +1290,7 @@ def run():
     logger.print("==================")
     logger.print(f"Snapshot: {backup['path'].name}")
 
-    if option in ["1", "4"]:
-        logger.print("✔ Restaurar Toolkit para /opt/homelab")
-
-    if option in ["2", "4"]:
-        logger.print("✔ Restaurar Configuração Homelab para /etc/homelab")
-
-    if option == "3":
-        logger.print("✔ Restaurar Jobs de Backup do Proxmox")
-
-    if option == "5":
-        logger.print("✔ Restaurar Storages Proxmox para /etc/pve/storage.cfg")
-        logger.print("⚠ Isto restaura as definições Proxmox, não cria discos, mounts ou datasets.")
-
-    if option == "6":
-        logger.print("✔ Restaurar Rede Proxmox para /etc/network/interfaces")
-        logger.print("⚠ Isto pode alterar o IP, gateway, bridges e acesso ao host.")
-        logger.print("⚠ A rede não será reiniciada automaticamente.")
-
-    if option == "7":
-        logger.print("✔ Reconfigurar Tailscale")
-        logger.print("⚠ Chaves privadas e identidade antiga não serão restauradas.")
-        logger.print("⚠ Poderá ser necessário autenticar novamente.")
-
-    if option == "8":
-        logger.print("✔ Restaurar configuração LCDproc")
-        logger.print("⚠ Isto restaura /etc/LCDd.conf e /etc/lcdproc.conf quando existirem.")
-
-    if option == "9":
-        logger.print("✔ Restaurar serviços systemd selecionados")
-        logger.print("⚠ Unit files serão escolhidos manualmente.")
-        logger.print("⚠ Symlinks e diretórios .wants não serão restaurados automaticamente.")
+    print_component_summary(logger, selected)
 
     logger.print("")
     logger.print("Segurança")
@@ -1261,28 +1323,28 @@ def run():
         logger.print("\nExecução")
         logger.print("========")
 
-        if option in ["1", "4"]:
+        if "1" in selected:
             restore_toolkit(snapshot_root, logger)
 
-        if option in ["2", "4"]:
+        if "2" in selected:
             restore_homelab_config(snapshot_root, logger)
             
-        if option == "3":
-            restore_backup_jobs(backup_jobs, logger)
-
-        if option == "5":
+        if "5" in selected:
             restore_storage_cfg(snapshot_root, logger)
 
-        if option == "6":
+        if "6" in selected:
             restore_network(snapshot_root, logger)
 
-        if option == "7":
+        if "7" in selected:
             restore_tailscale(tailscale_state, logger)
 
-        if option == "8":
+        if "8" in selected:
             restore_lcdproc(snapshot_root, lcdproc_state, logger)
 
-        if option == "9":
+        if "3" in selected:
+            restore_backup_jobs(backup_jobs, logger)
+
+        if "9" in selected:
             restore_systemd_units(snapshot_root, systemd_units, logger)
 
     except Exception as e:
@@ -1305,22 +1367,6 @@ def run():
     logger.print("\nResumo final")
     logger.print("============")
 
-    if option in ["1", "4"]:
-        logger.print("✔ Toolkit restaurado")
-
-    if option in ["2", "4"]:
-        logger.print("✔ Configuração Homelab restaurada")
-    if option == "3":
-        logger.print("✔ Jobs de Backup restaurados")
-    if option == "5":
-        logger.print("✔ Storages Proxmox restauradas")
-    if option == "6":
-        logger.print("✔ Rede Proxmox restaurada")
-    if option == "7":
-        logger.print("✔ Tailscale processado")
-    if option == "8":
-        logger.print("✔ LCDproc processado")
-    if option == "9":
-        logger.print("✔ Serviços systemd processados")
+    print_component_final_summary(logger, selected)
 
     logger.print(f"\nLog: {logger.path}")
