@@ -24,6 +24,7 @@ Comandos:
   restore-lxc   Restaurar containers LXC
   report        Relatório rápido do host
   doctor        Diagnóstico do host
+  update        Atualizar Toolkit a partir do Git
   note          Registar alteração
   version       Mostrar versão
 """)
@@ -53,6 +54,9 @@ def main():
         run()
     elif cmd == "doctor":
         from homelab.commands.doctor import run
+        run()
+    elif cmd == "update":
+        from homelab.commands.update import run
         run()
     elif cmd == "note":
         from homelab.commands.note import run

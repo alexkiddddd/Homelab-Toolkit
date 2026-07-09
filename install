@@ -18,6 +18,10 @@ mkdir -p /var/log/homelab
 cp -a homelab /opt/homelab/
 cp -a VERSION /opt/homelab/VERSION
 
+if [ -d ".git" ]; then
+  pwd > /opt/homelab/SOURCE
+fi
+
 ln -sf /opt/homelab/homelab/main.py /usr/local/bin/homelab
 chmod +x /usr/local/bin/homelab
 
