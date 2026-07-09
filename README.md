@@ -7,7 +7,7 @@ Toolkit pessoal para backup, diagnostico e recuperacao de um homelab Proxmox.
 ```bash
 apt update
 apt install -y git
-git clone https://github.com/TEU-USER/Homelab-Toolkit.git
+git clone https://github.com/alexkiddddd/Homelab-Toolkit.git
 cd Homelab-Toolkit
 chmod +x install
 ./install
