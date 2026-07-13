@@ -70,12 +70,37 @@ Na maquina nova:
 
 1. Instalar Proxmox.
 2. Garantir rede basica e acesso por consola, SSH ou Web UI.
-3. Montar ou disponibilizar o storage com os backups.
+3. Montar ou disponibilizar temporariamente o storage com os backups.
 4. Instalar o Toolkit via Git.
 5. Executar:
 
 ```bash
 homelab restore
+```
+
+### Bootstrap da storage de backups
+
+O Toolkit precisa de conseguir ler os backups antes de restaurar o host.
+
+Isto significa que, numa maquina nova, a NAS/storage onde vivem os backups tem de estar acessivel antes de executar `homelab restore`.
+
+Exemplo do fluxo esperado:
+
+```text
+Proxmox novo
+-> rede basica
+-> NAS/storage de backups acessivel
+-> instalar Toolkit
+-> homelab restore
+```
+
+O restore consegue depois repor a configuracao permanente das storages Proxmox a partir do snapshot, incluindo `/etc/pve/storage.cfg`. Mas para descobrir e ler esse snapshot, precisa primeiro de acesso inicial ao local dos backups.
+
+Por defeito, o Toolkit procura:
+
+```text
+/mnt/pve/backups/host-config
+/mnt/pve/backups/dump
 ```
 
 O modo guiado faz:
