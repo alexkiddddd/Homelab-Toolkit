@@ -149,6 +149,23 @@ def get_lcdproc_state():
     }
 
 
+def get_fan_control_state():
+    service = "xg210-fan.service"
+    script = Path("/usr/local/bin/xg210-fan.sh")
+    unit = Path("/etc/systemd/system") / service
+
+    return {
+        "service": service,
+        "unit_path": str(unit),
+        "unit_exists": unit.exists(),
+        "script_path": str(script),
+        "script_exists": script.exists(),
+        "script_mode": oct(script.stat().st_mode & 0o777) if script.exists() else "",
+        "enabled": shell(f"systemctl is-enabled {service} 2>/dev/null || true"),
+        "active": shell(f"systemctl is-active {service} 2>/dev/null || true"),
+    }
+
+
 def get_systemd_units():
     root = Path("/etc/systemd/system")
     suffixes = (".service", ".timer", ".mount", ".path", ".socket")
@@ -219,6 +236,8 @@ def run():
     ]:
         copy_if_exists(d, work)
 
+    copy_if_exists("/usr/local/bin/xg210-fan.sh", work / "usr" / "local" / "bin")
+
     for f in [
         "/etc/pve/storage.cfg",
         "/etc/pve/datacenter.cfg",
@@ -263,6 +282,7 @@ def run():
         "backup_jobs": shell("pvesh get /cluster/backup --output-format json 2>/dev/null || echo '[]'"),
         "tailscale": get_tailscale_state(),
         "lcdproc": get_lcdproc_state(),
+        "fan_control": get_fan_control_state(),
         "systemd_units": get_systemd_units(),
     }
 

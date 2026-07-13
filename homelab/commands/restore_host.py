@@ -19,6 +19,9 @@ LCDD_CONF = Path("/etc/LCDd.conf")
 LCDPROC_CONF = Path("/etc/lcdproc.conf")
 SYSTEMD_SYSTEM_DIR = Path("/etc/systemd/system")
 SYSTEMD_UNIT_SUFFIXES = (".service", ".timer", ".mount", ".path", ".socket")
+FAN_CONTROL_SERVICE = "xg210-fan.service"
+FAN_CONTROL_UNIT = SYSTEMD_SYSTEM_DIR / FAN_CONTROL_SERVICE
+FAN_CONTROL_SCRIPT = Path("/usr/local/bin/xg210-fan.sh")
 
 
 def human_size(size):
@@ -335,6 +338,130 @@ def restore_lcdproc(snapshot_root, snapshot_state, logger):
     return True
 
 
+def snapshot_fan_control_files(snapshot_root):
+    return {
+        "unit": read_optional_file(snapshot_root / "system" / "system" / FAN_CONTROL_SERVICE),
+        "script": read_optional_file(snapshot_root / "usr" / "local" / "bin" / "xg210-fan.sh"),
+    }
+
+
+def current_fan_control_files():
+    return {
+        "unit": read_optional_file(FAN_CONTROL_UNIT),
+        "script": read_optional_file(FAN_CONTROL_SCRIPT),
+    }
+
+
+def current_fan_control_state():
+    return {
+        "unit_exists": FAN_CONTROL_UNIT.exists(),
+        "script_exists": FAN_CONTROL_SCRIPT.exists(),
+        "script_mode": oct(FAN_CONTROL_SCRIPT.stat().st_mode & 0o777) if FAN_CONTROL_SCRIPT.exists() else "",
+        "enabled": shell(f"systemctl is-enabled {FAN_CONTROL_SERVICE} 2>/dev/null || true"),
+        "active": shell(f"systemctl is-active {FAN_CONTROL_SERVICE} 2>/dev/null || true"),
+    }
+
+
+def fan_control_diff_summary(snapshot_files, current_files):
+    rows = []
+
+    for key, label in [("unit", FAN_CONTROL_SERVICE), ("script", str(FAN_CONTROL_SCRIPT))]:
+        snapshot = snapshot_files.get(key, "")
+        current = current_files.get(key, "")
+
+        if snapshot and current:
+            status = "igual" if snapshot == current else "diferente"
+        elif snapshot:
+            status = "ausente no host atual"
+        elif current:
+            status = "ausente no snapshot"
+        else:
+            status = "ausente"
+
+        rows.append((label, status))
+
+    return rows
+
+
+def print_fan_control_compare(logger, snapshot_files, current_files, snapshot_state, current_state):
+    logger.print("\nFan Control")
+    logger.print("===========")
+
+    if not any(snapshot_files.values()) and not snapshot_state:
+        logger.print("Snapshot sem configuração Fan Control.")
+        return
+
+    logger.print("Ficheiros:")
+    for name, status in fan_control_diff_summary(snapshot_files, current_files):
+        icon = "✔" if status == "igual" else "⚠"
+        logger.print(f"{icon} {name}: {status}")
+
+    logger.print("")
+    logger.print("Snapshot:")
+    if snapshot_state:
+        logger.print(f"  Unit:     {'sim' if snapshot_state.get('unit_exists') else 'não'}")
+        logger.print(f"  Script:   {'sim' if snapshot_state.get('script_exists') else 'não'}")
+        logger.print(f"  Perms:    {snapshot_state.get('script_mode') or '-'}")
+        logger.print(f"  Serviço:  {snapshot_state.get('active') or '-'} / {snapshot_state.get('enabled') or '-'}")
+    else:
+        logger.print("  Estado do serviço não disponível neste snapshot.")
+
+    logger.print("")
+    logger.print("Host atual:")
+    logger.print(f"  Unit:     {'sim' if current_state.get('unit_exists') else 'não'}")
+    logger.print(f"  Script:   {'sim' if current_state.get('script_exists') else 'não'}")
+    logger.print(f"  Perms:    {current_state.get('script_mode') or '-'}")
+    logger.print(f"  Serviço:  {current_state.get('active') or '-'} / {current_state.get('enabled') or '-'}")
+
+
+def restore_fan_control(snapshot_root, snapshot_state, logger):
+    snapshot_state = snapshot_state or {}
+    snapshot_files = snapshot_fan_control_files(snapshot_root)
+    unit_src = snapshot_root / "system" / "system" / FAN_CONTROL_SERVICE
+    script_src = snapshot_root / "usr" / "local" / "bin" / "xg210-fan.sh"
+
+    if not unit_src.exists() and not script_src.exists():
+        logger.print("❌ Snapshot sem ficheiros Fan Control.")
+        logger.print("Executa um novo homelab backup para incluir este componente.")
+        return False
+
+    if unit_src.exists():
+        FAN_CONTROL_UNIT.parent.mkdir(parents=True, exist_ok=True)
+        backup_file(FAN_CONTROL_UNIT, logger)
+        shutil.copy2(unit_src, FAN_CONTROL_UNIT)
+        logger.print(f"✔ {FAN_CONTROL_UNIT} restaurado")
+    else:
+        logger.print(f"⚠ {FAN_CONTROL_SERVICE} não encontrado no snapshot. Ignorado.")
+
+    if script_src.exists():
+        FAN_CONTROL_SCRIPT.parent.mkdir(parents=True, exist_ok=True)
+        backup_file(FAN_CONTROL_SCRIPT, logger)
+        shutil.copy2(script_src, FAN_CONTROL_SCRIPT)
+        FAN_CONTROL_SCRIPT.chmod(0o755)
+        logger.print(f"✔ {FAN_CONTROL_SCRIPT} restaurado")
+    else:
+        logger.print(f"⚠ {FAN_CONTROL_SCRIPT} não encontrado no snapshot. Ignorado.")
+
+    logger.print("A recarregar systemd...")
+    shell("systemctl daemon-reload", timeout=120, logger=logger, show=True)
+
+    if snapshot_state.get("enabled") == "enabled":
+        if confirm(f"Ativar {FAN_CONTROL_SERVICE}?", True):
+            shell(f"systemctl enable {FAN_CONTROL_SERVICE}", timeout=120, logger=logger, show=True)
+
+    if confirm(f"Iniciar/reiniciar {FAN_CONTROL_SERVICE} agora?", False):
+        shell(f"systemctl restart {FAN_CONTROL_SERVICE}", timeout=120, logger=logger, show=True)
+        logger.print("Estado:")
+        logger.print(shell(f"systemctl status {FAN_CONTROL_SERVICE} --no-pager 2>/dev/null || true", timeout=60))
+    else:
+        logger.print("Serviço não reiniciado.")
+
+    if not snapshot_files.get("script", "").strip():
+        logger.print("⚠ O script restaurado não foi encontrado para validação textual.")
+
+    return True
+
+
 def list_systemd_units(root):
     units = []
 
@@ -467,10 +594,15 @@ RESTORE_COMPONENTS = {
         "summary": "Restaurar serviços systemd selecionados",
         "warning": "Unit files serão escolhidos manualmente. Symlinks e diretórios .wants não serão restaurados automaticamente.",
     },
+    "10": {
+        "name": "Fan Control",
+        "summary": "Restaurar Fan Control Sophos XG210",
+        "warning": "Isto restaura xg210-fan.service e /usr/local/bin/xg210-fan.sh. Valida a ventoinha após reiniciar o serviço.",
+    },
 }
 
-RESTORE_ORDER = ["1", "2", "5", "6", "7", "8", "3", "9"]
-RESTORE_RECOMMENDED_ORDER = ["1", "2", "5", "6", "7", "8", "3"]
+RESTORE_ORDER = ["1", "2", "5", "6", "7", "8", "10", "3", "9"]
+RESTORE_RECOMMENDED_ORDER = ["1", "2", "5", "6", "7", "8", "10", "3"]
 
 
 def parse_component_selection(value):
@@ -517,6 +649,7 @@ def print_component_final_summary(logger, selected):
         "7": "Tailscale processado",
         "8": "LCDproc processado",
         "9": "Serviços systemd processados",
+        "10": "Fan Control processado",
     }
 
     for key in selected:
@@ -1147,6 +1280,7 @@ def run():
     backup_jobs = parse_backup_jobs(manifest)
     tailscale_state = manifest.get("tailscale", {})
     lcdproc_state = manifest.get("lcdproc", {})
+    fan_control_state = manifest.get("fan_control", {})
     systemd_units = manifest.get("systemd_units", [])
     current = current_state()
     _, current_storage_defs = current_storage_cfg()
@@ -1155,6 +1289,8 @@ def run():
     current_tailscale = current_tailscale_state()
     current_lcdproc = current_lcdproc_files()
     current_lcdproc_services = current_lcdproc_state()
+    current_fan_control = current_fan_control_files()
+    current_fan_control_services = current_fan_control_state()
     current_units = current_systemd_units()
 
     snapshot_toolkit = manifest.get("toolkit_version", "desconhecido")
@@ -1213,6 +1349,13 @@ def run():
             lcdproc_state,
             current_lcdproc_services,
         )
+        print_fan_control_compare(
+            logger,
+            snapshot_fan_control_files(snapshot_root),
+            current_fan_control,
+            fan_control_state,
+            current_fan_control_services,
+        )
         print_systemd_compare(
             logger,
             snapshot_systemd_units(snapshot_root),
@@ -1265,9 +1408,10 @@ def run():
     logger.print("7 Tailscale")
     logger.print("8 LCDproc")
     logger.print("9 Serviços systemd")
+    logger.print("10 Fan Control")
     logger.print("all Todos os componentes recomendados")
     logger.print("")
-    logger.print("Podes escolher vários, por exemplo: 2,5,6,7,8,3")
+    logger.print("Podes escolher vários, por exemplo: 2,5,6,7,8,10,3")
     logger.print("0 Cancelar")
 
     selected = parse_component_selection(ask("\nEscolha:", "0"))
@@ -1340,6 +1484,9 @@ def run():
 
         if "8" in selected:
             restore_lcdproc(snapshot_root, lcdproc_state, logger)
+
+        if "10" in selected:
+            restore_fan_control(snapshot_root, fan_control_state, logger)
 
         if "3" in selected:
             restore_backup_jobs(backup_jobs, logger)

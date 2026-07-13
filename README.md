@@ -96,13 +96,13 @@ homelab restore-host
 Depois da analise do snapshot, e possivel restaurar um ou varios componentes:
 
 ```text
-2,5,6,7,8,3
+2,5,6,7,8,10,3
 ```
 
 Ordem recomendada:
 
 ```text
-Config Homelab -> Storages -> Rede -> Tailscale -> LCDproc -> Jobs de Backup
+Config Homelab -> Storages -> Rede -> Tailscale -> LCDproc -> Fan Control -> Jobs de Backup
 ```
 
 Tambem existe:
@@ -118,6 +118,13 @@ para os componentes recomendados, e:
 ```
 
 para restaurar servicos systemd de forma seletiva.
+
+O componente `10` restaura o Fan Control do Sophos XG210:
+
+- `/etc/systemd/system/xg210-fan.service`
+- `/usr/local/bin/xg210-fan.sh`
+
+Depois de restaurar, o Toolkit faz `systemctl daemon-reload`, pode reativar o servico e pode reinicia-lo mediante confirmacao.
 
 ## Comandos principais
 
