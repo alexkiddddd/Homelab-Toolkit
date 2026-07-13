@@ -5,6 +5,7 @@ from homelab.core.logger import Logger
 
 HOST_BACKUP_DIR = Path("/mnt/pve/backups/host-config")
 LXC_BACKUP_DIR = Path("/mnt/pve/backups/dump")
+BACKUP_STORAGE_DIR = Path("/mnt/pve/backups")
 
 
 def ask(prompt, default=""):
@@ -30,12 +31,56 @@ def backup_count(path, pattern):
     return len(list(path.glob(pattern)))
 
 
+def path_state(path):
+    if not path.exists():
+        return "ausente"
+    if not path.is_dir():
+        return "não é diretoria"
+    return "ok"
+
+
+def print_backup_storage_bootstrap(host_backups, lxc_backups):
+    print("Bootstrap da storage de backups")
+    print("===============================")
+    print("O Toolkit precisa de ler os backups antes de restaurar o host.")
+    print("Disponibiliza temporariamente a NAS/storage de backups e volta a executar:")
+    print()
+    print("  homelab restore")
+    print()
+    print("Caminhos esperados:")
+    print(f"  Host snapshots: {HOST_BACKUP_DIR}")
+    print(f"  LXC backups:    {LXC_BACKUP_DIR}")
+    print()
+    print("Exemplos rápidos:")
+    print("  NFS:")
+    print("    mkdir -p /mnt/pve/backups")
+    print("    mount -t nfs <NAS_IP>:/<export> /mnt/pve/backups")
+    print()
+    print("  SMB/CIFS:")
+    print("    apt install -y cifs-utils")
+    print("    mkdir -p /mnt/pve/backups")
+    print("    mount -t cifs //<NAS_IP>/<share> /mnt/pve/backups -o username=<user>")
+    print()
+    print("Depois do restore, a configuração permanente das storages Proxmox pode ser reposta")
+    print("a partir do snapshot, incluindo /etc/pve/storage.cfg.")
+    print()
+
+    if host_backups == 0:
+        print("⚠ Sem snapshots de host, o Restore Host não consegue arrancar.")
+    if lxc_backups == 0:
+        print("⚠ Sem backups LXC, o Restore LXC não terá containers para restaurar.")
+    print()
+
+
 def print_preflight():
     host_backups = backup_count(HOST_BACKUP_DIR, "proxmox-host-*.tar.zst")
     lxc_backups = backup_count(LXC_BACKUP_DIR, "vzdump-lxc-*.tar.zst")
 
     print("Pré-verificação")
     print("===============")
+    print(f"Storage base:   {path_state(BACKUP_STORAGE_DIR)} em {BACKUP_STORAGE_DIR}")
+    print(f"Host dir:       {path_state(HOST_BACKUP_DIR)}")
+    print(f"LXC dir:        {path_state(LXC_BACKUP_DIR)}")
     print(f"Host snapshots: {host_backups} em {HOST_BACKUP_DIR}")
     print(f"LXC backups:    {lxc_backups} em {LXC_BACKUP_DIR}")
     print()
@@ -45,8 +90,15 @@ def print_preflight():
     if lxc_backups == 0:
         print("⚠ Nenhum backup LXC encontrado.")
     if host_backups == 0 or lxc_backups == 0:
-        print("Confirma se o storage de backups está montado antes de continuar.")
         print()
+
+    if host_backups == 0:
+        print_backup_storage_bootstrap(host_backups, lxc_backups)
+
+        if not confirm("Continuar mesmo sem snapshots de host?", False):
+            return False
+
+    return True
 
 
 def run_guided(logger):
@@ -59,7 +111,10 @@ def run_guided(logger):
     print("3 Doctor final")
     print()
 
-    print_preflight()
+    if not print_preflight():
+        print("Cancelado.")
+        logger.write("Modo guiado cancelado: snapshots de host ausentes.")
+        return
 
     if not confirm("Continuar com recuperação guiada?", False):
         print("Cancelado.")

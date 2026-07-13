@@ -96,6 +96,8 @@ Proxmox novo
 
 O restore consegue depois repor a configuracao permanente das storages Proxmox a partir do snapshot, incluindo `/etc/pve/storage.cfg`. Mas para descobrir e ler esse snapshot, precisa primeiro de acesso inicial ao local dos backups.
 
+Se `homelab restore` nao encontrar snapshots de host, o modo guiado mostra este passo de bootstrap e exemplos de montagem NFS/SMB antes de continuar.
+
 Por defeito, o Toolkit procura:
 
 ```text
